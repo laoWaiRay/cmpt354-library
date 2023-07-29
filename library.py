@@ -1,9 +1,14 @@
 from simple_term_menu import TerminalMenu
 import datetime
+import re
 import sqlite3
 
 # GLOBAL VARIABLES
-CUST_ID = None
+global CUST_ID
+global MAX_TITLE_LENGTH
+MAX_TITLE_LENGTH = 20
+global ITEM_TYPES
+ITEM_TYPES = ['print', 'digital', 'magazine', 'journal', 'cd', 'record', 'dvd', 'game']
 
 def main():
     conn = sqlite3.connect('library.db');
@@ -22,6 +27,7 @@ def main():
     
     with conn:
         cursor = conn.cursor()
+        global CUST_ID
         CUST_ID = loginUser(cursor)
         while True:
             print("\nWelcome to CMPT354 library. What would you like to do?")
@@ -63,7 +69,7 @@ def loginUser(cursor):
     rows = cursor.fetchall()
     if (rows):
         print(f"Welcome back, {names[0]}")
-        CUST_ID = rows[0][0]
+        return rows[0][0]   # Return the customer ID
     else:
         print(f"Creating new account for {names[0]} {names[1]}...")
         while True:
@@ -76,8 +82,7 @@ def loginUser(cursor):
 
         query = "INSERT INTO Customer (first_name, last_name, birthdate) VALUES (:first_name, :last_name, :birthdate)"
         cursor.execute(query, {'first_name': names[0], 'last_name': names[1], 'birthdate': birthdate})
-        CUST_ID = cursor.lastrowid
-    print(CUST_ID)
+        return cursor.lastrowid  # Return the customer ID
 
 
 def findItem(cursor):
@@ -90,11 +95,73 @@ def findItem(cursor):
             findByAuthor(cursor)
 
 def returnItem(cursor):
-    print("Returning")
+    query = "SELECT id, title, A.first_name, A.last_name, year, due_date FROM Borrowed \
+                NATURAL JOIN Customer \
+                NATURAL JOIN Item I \
+                JOIN Author A ON I.aid = A.aid \
+             WHERE cid = :custID"
+    cursor.execute(query, {'custID': CUST_ID})
+    rows = cursor.fetchall()
+    print("\nWhich item would you like to return?")
+    itemId = getSelectedItemId(rows)
+    if (itemId != -1):
+        query = "DELETE FROM Borrowed WHERE id = :itemId AND cid = :custId"
+        cursor.execute(query, {'itemId': itemId, 'custId': CUST_ID})
+        print("Successfully returned item")
+
 
 def donateItem(cursor):
-    print("Donating")
+    print("Please provide some information about the item")
+    while True:
+        title = input("Title: ")
+        if len(title) < MAX_TITLE_LENGTH:
+            break
+        else:
+            print(f"Title must be less than {MAX_TITLE_LENGTH} characters long")
 
+    while True:
+        year = input("Year: ")
+        if isValidYear(year):
+            break
+        else:
+            print("Please enter a valid year")
+    
+    while True:
+        authorName = input("Author: ")
+        names = authorName.split()
+        if (len(names) == 2):
+            break
+        else:
+            print("Must follow pattern: FIRSTNAME LASTNAME")
+    
+    firstName = names[0]
+    lastName = names[1]
+    
+    query = "SELECT * FROM Author WHERE first_name = :first AND last_name = :last"
+    cursor.execute(query, {'first': firstName, 'last': lastName})
+    rows = cursor.fetchall()
+    if not rows:
+        print(f"Creating new entry for author: {firstName} {lastName}...")
+        while True:
+            try:
+                authorBirthdate = input(f"What is {firstName} {lastName}'s birthdate (yyyy-mm-dd)? ")
+                validateDateString(authorBirthdate)
+                break
+            except ValueError:
+                print("Invalid date format")
+    
+    print("Type: ")
+    menu_entry_index = getUserInput(ITEM_TYPES)
+    itemType = ITEM_TYPES[menu_entry_index]
+
+    query = "INSERT INTO Author (first_name, last_name, birthdate) VALUES (:first, :last, :birthdate)"
+    cursor.execute(query, {'first': firstName, 'last': lastName, 'birthdate': authorBirthdate})
+    aid = cursor.lastrowid
+
+    query = "INSERT INTO Item (title, year, type, aid) VALUES (:title, :year, :type, :aid)"
+    cursor.execute(query, {'title': title, 'year': year, 'type': itemType, 'aid': aid})
+    print("Thank you for your donation")
+    
 def findEvent(cursor):
     print("Finding event")
 
@@ -141,6 +208,10 @@ def findByAuthor(cursor):
         print(f"\nWe have found the following items matching the author \"{author}\":")
         for row in rows:
             print(row)
+        print("\nWould you like to borrow an item?")
+        itemId = getSelectedItemId(rows)
+        if (itemId != -1):
+            borrowItem(cursor, itemId)
     else:
         print("Could not find any matching items")
 
@@ -151,21 +222,20 @@ def getUserInput(options):
     menu_entry_index = terminal_menu.show()
     return menu_entry_index
 
-# PARAMS: a row of tuples returned from a query
+# PARAMS: a row of tuples returned from a query, where the first element of the tuple must be ID
 # RETURNS: The id attribute of the selected item, or -1 if no item was selected
 def getSelectedItemId(rows):
-    print("\nWould you like to borrow an item?")
     # Convert tuples in rows array to strings to be used for options
     options = []
     for row in rows:
         option = ', '.join(str(item) for item in row)
         options.append(option)
     
-    options.append("Return")
+    options.append("Back to main menu")
 
     menu_entry_index = getUserInput(options)
 
-    # If user selects "Return", return -1
+    # If user selects "Back", return -1
     if (menu_entry_index == len(options) - 1):
         return -1
     return rows[menu_entry_index][0]
@@ -177,15 +247,33 @@ def borrowItem(cursor, itemId):
     cursor.execute(query, {'itemId': itemId})
     rows = cursor.fetchall()
     if rows:
-        print("Can borrow!")
+        print("Sorry, this has been checked out by another customer.")
     else:
-        print("Checked out by another customer!")
+        query = "INSERT INTO Borrowed (id, cid) VALUES (:id, :cid)"
+        cursor.execute(query, {'id': itemId, 'cid': CUST_ID})
+        query = "SELECT title, due_date FROM Borrowed NATURAL JOIN Item WHERE id = :id"
+        cursor.execute(query, {'id': itemId})
+        row = cursor.fetchone()
+        print(f"Checked out \"{row[0]}\" \t Due date: {row[1]}")
+
 
 def validateDateString(dateString):
     try:
         datetime.date.fromisoformat(dateString)
     except ValueError:
         raise ValueError("Date must be in format yyyy-mm-dd")
+    
+def isValidAuthor(str):
+    parts = str.split()
+    if (len(parts) > 2):
+        return False
+    return True
+
+def isValidYear(str):
+    match = re.search(r"^[0-9]{4}$", str)
+    if match:
+        return True
+    return False
 
 if __name__ == "__main__":
     main()
