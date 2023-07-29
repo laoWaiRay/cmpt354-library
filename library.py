@@ -20,6 +20,7 @@ def main():
             "Register for an event in the library",
             "Volunteer for the library",
             "Ask for help from a librarian",
+            "List",
             "Exit"
             ]
 
@@ -49,6 +50,8 @@ def main():
                 case 6:
                     getHelp(cursor)
                 case 7:
+                    getList(cursor)
+                case 8:
                     break
     if conn:
         conn.close()
@@ -137,7 +140,7 @@ def donateItem(cursor):
     firstName = names[0]
     lastName = names[1]
     
-    query = "SELECT * FROM Author WHERE first_name = :first AND last_name = :last"
+    query = "SELECT aid FROM Author WHERE first_name = :first AND last_name = :last"
     cursor.execute(query, {'first': firstName, 'last': lastName})
     rows = cursor.fetchall()
     if not rows:
@@ -149,14 +152,17 @@ def donateItem(cursor):
                 break
             except ValueError:
                 print("Invalid date format")
+        
+        query = "INSERT INTO Author (first_name, last_name, birthdate) VALUES (:first, :last, :birthdate)"
+        cursor.execute(query, {'first': firstName, 'last': lastName, 'birthdate': authorBirthdate})
+        aid = cursor.lastrowid
+    else:
+        aid = rows[0][0]
+
     
     print("Type: ")
     menu_entry_index = getUserInput(ITEM_TYPES)
     itemType = ITEM_TYPES[menu_entry_index]
-
-    query = "INSERT INTO Author (first_name, last_name, birthdate) VALUES (:first, :last, :birthdate)"
-    cursor.execute(query, {'first': firstName, 'last': lastName, 'birthdate': authorBirthdate})
-    aid = cursor.lastrowid
 
     query = "INSERT INTO Item (title, year, type, aid) VALUES (:title, :year, :type, :aid)"
     cursor.execute(query, {'title': title, 'year': year, 'type': itemType, 'aid': aid})
@@ -176,13 +182,15 @@ def getHelp(cursor):
 
 def findByTitle(cursor):
     title = input("Please enter the title of the item you are looking for: ")
-    query = "SELECT id, title, first_name, last_name, year FROM Item NATURAL JOIN Author WHERE title = :title COLLATE NOCASE"
-    cursor.execute(query, {'title': title})
+    query = "SELECT id, title, first_name, last_name, year FROM Item NATURAL JOIN Author WHERE title LIKE :title"
+    cursor.execute(query, {'title': '%'+title+'%'})
     rows = cursor.fetchall()
     if rows:
         print(f"\nWe have found the following items matching the title \"{title}\":")
         for row in rows:
             print(row)
+        
+        print("\nBorrow an item?\n")
         itemId = getSelectedItemId(rows)
         if (itemId == -1):
             return
@@ -192,16 +200,21 @@ def findByTitle(cursor):
 
 
 def findByAuthor(cursor):
-    author = input("Please enter the name of the author you are looking for:")
+    author = input("Please enter the name of the author you are looking for: ")
     names = author.split()
+    print(names)
+    print('%'+names[0]+'%')
 
     # Some authors can only have a first name. For example, "Dr.Seuss"
     if len(names) < 2:
-        names += [None]
-
-    query = "SELECT id, title, first_name, last_name, year FROM Item NATURAL JOIN Author WHERE first_name = :first_name COLLATE NOCASE \
-             AND last_name IS :last_name COLLATE NOCASE"
-    cursor.execute(query, {'first_name': names[0], 'last_name': names[1]})
+        query = "SELECT id, title, first_name, last_name, year FROM Item NATURAL JOIN Author \
+             WHERE first_name LIKE :first_name"
+        cursor.execute(query, {'first_name': '%'+names[0]+'%'})
+    else:
+        query = "SELECT id, title, first_name, last_name, year FROM Item NATURAL JOIN Author \
+                 WHERE first_name LIKE :first_name OR last_name LIKE :last_name"
+        cursor.execute(query, {'first_name': '%'+names[0]+'%', 'last_name': '%'+names[1]+'%'})
+    
     rows = cursor.fetchall()
 
     if rows:
@@ -256,6 +269,41 @@ def borrowItem(cursor, itemId):
         row = cursor.fetchone()
         print(f"Checked out \"{row[0]}\" \t Due date: {row[1]}")
 
+def getList(cursor):
+    print("What do you want to list?")
+    options = ["Titles", "Authors", "Events"]
+    menu_entry_index = getUserInput(options)
+    print(f"Selected \"{options[menu_entry_index]}\": ")
+
+    match menu_entry_index:
+        case 0:
+            listTitles(cursor)
+        case 1:
+            listAuthors(cursor)
+        case 2:
+            listEvents(cursor)
+    
+    rows = cursor.fetchall()
+    for row in rows:
+        print(row[0])
+
+def listTitles(cursor):
+    cursor.execute("SELECT title FROM Item")
+    rows = cursor.fetchall()
+    for row in rows:
+        print(row[0])
+
+def listAuthors(cursor):
+    cursor.execute("SELECT first_name, last_name FROM Author")
+    rows = cursor.fetchall()
+    for row in rows:
+        print(f"{row[0]} {row[1] or ''}")
+
+def listEvents(cursor):
+    cursor.execute("SELECT name FROM Event")
+    rows = cursor.fetchall()
+    for row in rows:
+        print(row[0])
 
 def validateDateString(dateString):
     try:
