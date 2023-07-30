@@ -16,8 +16,7 @@ def main():
     options = ["Find an item in the library", 
             "Return a borrowed item",
             "Donate an item to the library",
-            "Find an event in the library",
-            "Register for an event in the library",
+            "Find and register for an event",
             "Volunteer for the library",
             "Ask for help from a librarian",
             "List",
@@ -44,15 +43,14 @@ def main():
                 case 3:
                     findEvent(cursor)
                 case 4:
-                    registerEvent(cursor)
-                case 5:
                     volunteer(cursor)
-                case 6:
+                case 5:
                     getHelp(cursor)
-                case 7:
+                case 6:
                     getList(cursor)
-                case 8:
+                case 7:
                     break
+            conn.commit()
     if conn:
         conn.close()
         print("Closed database successfully")
@@ -169,10 +167,19 @@ def donateItem(cursor):
     print("Thank you for your donation")
     
 def findEvent(cursor):
-    print("Finding event")
-
-def registerEvent(cursor):
-    print("Registering for event")
+    query = "SELECT bid, name, e_type, audience, room_number, date, start_time, end_time \
+             FROM Event NATURAL JOIN Room_Booking"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    print("\nWhich event would you like to register for?\n")
+    print("BID | Name | Type | Audience | Room Number | Date | Start Time | End Time")
+    BID = getSelectedItemId(rows)
+    if (BID != -1):
+        try:
+            query = "INSERT INTO Attendee (bid, cid) VALUES (:bid, :cid)"
+            cursor.execute(query, {'bid': BID, 'cid': CUST_ID})
+        except sqlite3.IntegrityError as error:
+            print(error)
 
 def volunteer(cursor):
     print("Volunteering")
@@ -270,8 +277,8 @@ def borrowItem(cursor, itemId):
         print(f"Checked out \"{row[0]}\" \t Due date: {row[1]}")
 
 def getList(cursor):
-    print("What do you want to list?")
-    options = ["Titles", "Authors", "Events"]
+    print("\nWhat do you want to list?\n")
+    options = ["Titles", "Authors", "Events", "My Events"]
     menu_entry_index = getUserInput(options)
     print(f"Selected \"{options[menu_entry_index]}\": ")
 
@@ -282,6 +289,8 @@ def getList(cursor):
             listAuthors(cursor)
         case 2:
             listEvents(cursor)
+        case 3:
+            listMyEvents(cursor)
     
     rows = cursor.fetchall()
     for row in rows:
@@ -304,6 +313,18 @@ def listEvents(cursor):
     rows = cursor.fetchall()
     for row in rows:
         print(row[0])
+
+def listMyEvents(cursor):
+    query = "SELECT E.name, date, RB.room_number, start_time, end_time FROM Attendee A \
+                 NATURAL JOIN Room_Booking RB \
+                 JOIN Event E ON E.eid = RB.eid \
+             WHERE cid = :cid"
+    cursor.execute(query, {'cid': CUST_ID})
+    rows = cursor.fetchall()
+    for row in rows:
+        print(row)
+
+### HELPER FUNCTIONS ###
 
 def validateDateString(dateString):
     try:
