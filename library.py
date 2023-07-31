@@ -1,7 +1,22 @@
-from simple_term_menu import TerminalMenu
+
 import datetime
 import re
 import sqlite3
+import sys
+import subprocess
+import pkg_resources
+
+
+required = {'simple_term_menu'}
+installed = {pkg.key for pkg in pkg_resources.working_set}
+missing = required - installed
+
+if missing:
+    python = sys.executable
+    subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
+
+from simple_term_menu import TerminalMenu
+
 
 # GLOBAL VARIABLES
 global CUST_ID
@@ -9,6 +24,10 @@ global MAX_TITLE_LENGTH
 MAX_TITLE_LENGTH = 20
 global ITEM_TYPES
 ITEM_TYPES = ['print', 'digital', 'magazine', 'journal', 'cd', 'record', 'dvd', 'game']
+
+
+
+
 
 def main():
     conn = sqlite3.connect('library.db');
@@ -182,10 +201,34 @@ def findEvent(cursor):
             print(error)
 
 def volunteer(cursor):
-    print("Volunteering")
+
+    query = "SELECT first_name, last_name, birthdate FROM Customer WHERE cid = :cid"
+    cursor.execute(query, {'cid': CUST_ID})
+    rows = cursor.fetchall()
+    first_name, last_name, birth = rows[0]
+    
+    query = "SELECT pid FROM Personnel WHERE first_name = :first_name AND last_name = :last_name AND birthdate = :birth"
+    cursor.execute(query, {'first_name': first_name, 'last_name': last_name, 'birth': birth})
+    rows = cursor.fetchall()
+    if rows:
+        print("You're already registered as a volunteer!")
+    else:
+        query = "INSERT INTO Personnel (first_name, last_name, birthdate, role, salary) VALUES (:first_name, :last_name, :birth, :role, :salary)"
+        cursor.execute(query, {'first_name': first_name, 'last_name': last_name, 'birth': birth, 'role': 'volunteer', 'salary': 0 })
+        print("You've been registered as a volunteer!")
 
 def getHelp(cursor):
-    print("Asking for help")
+    print("These are the available Librarians, who would you like to help you")
+    query = "SELECT first_name, last_name FROM Personnel WHERE role = 'supervisor'"
+    cursor.execute(query, {})
+    rows = cursor.fetchall()
+    BID = getSelectedItemId(rows)
+
+    if (BID != 1):
+        print("Hi how can I help")
+
+
+
 
 def findByTitle(cursor):
     title = input("Please enter the title of the item you are looking for: ")
